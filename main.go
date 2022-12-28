@@ -12,15 +12,15 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	imagecopy "github.com/containers/image/v5/copy"
-	"github.com/containers/image/v5/docker"
 	"github.com/containers/image/v5/oci/archive"
+	ocidir "github.com/containers/image/v5/oci/layout"
 	"github.com/containers/image/v5/signature"
+	"github.com/containers/image/v5/transports/alltransports"
 	"github.com/containers/image/v5/types"
 	tarfs "github.com/nlepage/go-tarfs"
 	"github.com/opencontainers/go-digest"
@@ -30,6 +30,7 @@ import (
 
 type AbsPath string
 
+// During json unmarshaling, relative paths are based on the working directory of dinker
 func (s *AbsPath) UnmarshalText(text []byte) error {
 	p, err := filepath.Abs(string(text))
 	if err != nil {
@@ -47,12 +48,22 @@ func (p *AbsPath) Raw() string {
 	return string(*p)
 }
 
+func (p *AbsPath) Parent() *AbsPath {
+	parent, _ := filepath.Split(p.Raw())
+	out := AbsPath(parent)
+	return &out
+}
+
 func (p *AbsPath) Filename() string {
 	return filepath.Base(string(*p))
 }
 
-func (p *AbsPath) Join(rel string) AbsPath {
-	return AbsPath(path.Clean(path.Join(string(*p), rel)))
+func (p *AbsPath) Join(rel string) *AbsPath {
+	if filepath.IsAbs(rel) {
+		panic("join path abs: " + rel)
+	}
+	out := AbsPath(filepath.Clean(filepath.Join(string(*p), rel)))
+	return &out
 }
 
 func (p *AbsPath) Exists() bool {
@@ -86,8 +97,9 @@ func readTfsJson[T any](tfs fs.FS, p string) (out T, err error) {
 
 type BuildImageArgsFile struct {
 	Source AbsPath `json:"source"`
-	Dest   *string `json:"dest"`
-	// Parsed as octal
+	// Defaults to the filename of Source in /. Ex: if source is `a/b/c` the resulting image will have the file at `/c`
+	Dest *string `json:"dest"`
+	// Parsed as octal, defaults to 0644
 	Mode *string `json:"mode"`
 }
 
@@ -98,33 +110,24 @@ type BuildImageArgsPort struct {
 }
 
 type BuildImageArgs struct {
-	FromPath   AbsPath
-	Files      []BuildImageArgsFile
-	Cmd        []string
-	AddEnv     map[string]string
-	ClearEnv   bool
-	WorkingDir string
-	Ports      []BuildImageArgsPort `json:"ports"`
-	DestPath   AbsPath
+	FromPath    AbsPath
+	Files       []BuildImageArgsFile
+	Cmd         []string
+	AddEnv      map[string]string
+	ClearEnv    bool
+	WorkingDir  string
+	Ports       []BuildImageArgsPort `json:"ports"`
+	DestDirPath AbsPath
 }
 
 func BuildImage(args BuildImageArgs) error {
 	// Combine and write image
-	destFd, err := os.Create(args.DestPath.Raw())
-	if err != nil {
-		return fmt.Errorf("couldn't open %s for writing: %w", args.DestPath, err)
+	if err := os.MkdirAll(args.DestDirPath.Raw(), 0o755); err != nil {
+		return fmt.Errorf("error creating staging dir for image at %s: %w", args.DestDirPath, err)
 	}
-	destTar := tar.NewWriter(destFd)
 
 	writeMemory := func(name string, contents []byte) error {
-		if err := destTar.WriteHeader(&tar.Header{
-			Name: name,
-			Mode: 0600,
-			Size: int64(len(contents)),
-		}); err != nil {
-			return fmt.Errorf("error writing tar header for %s: %w", name, err)
-		}
-		if _, err := destTar.Write([]byte(contents)); err != nil {
+		if err := ioutil.WriteFile(args.DestDirPath.Join(name).Raw(), contents, 0o600); err != nil {
 			return fmt.Errorf("error writing tar file %s: %w", name, err)
 		}
 		return nil
@@ -155,14 +158,20 @@ func BuildImage(args BuildImageArgs) error {
 		return writeMemory(name, contents1)
 	}
 	writeBlobReader := func(digest digest.Digest, size int64, reader io.Reader) error {
-		if err := destTar.WriteHeader(&tar.Header{
-			Name: blobPath(digest),
-			Mode: 0600,
-			Size: size,
-		}); err != nil {
-			return fmt.Errorf("error writing tar header for layer: %w", err)
+		p := args.DestDirPath.Join(blobPath(digest))
+		if err := os.MkdirAll(p.Parent().Raw(), 0o755); err != nil {
+			return fmt.Errorf("unable to create parent directories for image file %s: %w", p, err)
 		}
-		_, err = io.Copy(destTar, reader)
+		f, err := os.Create(p.Raw())
+		if err != nil {
+			return fmt.Errorf("error creating %s: %w", p, err)
+		}
+		defer func() {
+			if err := f.Close(); err != nil {
+				log.Printf("Error closing %s: %s", p, err)
+			}
+		}()
+		_, err = io.Copy(f, reader)
 		if err != nil {
 			return fmt.Errorf("error writing layer to tar: %w", err)
 		}
@@ -267,7 +276,7 @@ func BuildImage(args BuildImageArgs) error {
 
 	// Write `from` layers, pull `from` info
 	var fromConfig imagespec.Image
-	{
+	if err := func() error {
 		tf, err := os.Open(args.FromPath.Raw())
 		if err != nil {
 			return fmt.Errorf("unable to open `from` image: %w", err)
@@ -310,6 +319,9 @@ func BuildImage(args BuildImageArgs) error {
 			}
 			layerDiffIds = append(layerDiffIds, fromConfig.RootFS.DiffIDs...)
 		}
+		return nil
+	}(); err != nil {
+		return fmt.Errorf("error reading FROM image %s: %w", args.FromPath, err)
 	}
 	env := []string{}
 	if !args.ClearEnv {
@@ -372,33 +384,28 @@ func BuildImage(args BuildImageArgs) error {
 	}); err != nil {
 		return err
 	}
-	if err := destTar.Close(); err != nil {
-		return fmt.Errorf("error closing tar: %w", err)
-	}
 
 	return nil
 }
 
-type RegistryImage struct {
-	Name string `json:"name"`
-	Tag  string `json:"tag"`
-	// Override default registry URL for operation
-	Url      *string `json:"url"`
+type RegistryCreds struct {
 	User     *string `json:"user"`
 	Password *string `json:"password"`
 }
 
 type Args struct {
-	// Path to OCI FROM image tar
-	FromPath AbsPath `json:"from_path"`
-	// Pull FROM image from registry (cache at FromPath)
-	FromRegistry *RegistryImage `json:"from_registry"`
-	// Save image to file as OCI tar
-	DestPath *AbsPath `json:"dest_path"`
-	// Push to registry - if URL is none, registers with local docker daemon
-	DestRegistry *RegistryImage       `json:"dest_registry"`
-	Files        []BuildImageArgsFile `json:"files"`
-	Cmd          []string             `json:"cmd"`
+	// Path to FROM oci image. If not present, pulls using FromPull
+	From AbsPath `json:"from"`
+	// Pull FROM oci image from this ref if it doesn't exist locally (skopeo-style)
+	FromPull string `json:"from_pull"`
+	// Credentials to pull FROM if necessary
+	FromCreds RegistryCreds `json:"from_registry"`
+	// Save image to ref (skopeo-style)
+	Dest string
+	// Credentials to push to dest if necessary
+	DestCreds RegistryCreds        `json:"dest_registry"`
+	Files     []BuildImageArgsFile `json:"files"`
+	Cmd       []string             `json:"cmd"`
 	// Add additional default environment values
 	AddEnv map[string]string `json:"add_env"`
 	// Clear inherited environment from FROM image
@@ -421,14 +428,14 @@ func main0() error {
 		return fmt.Errorf("error parsing config json at %s: %w", os.Args[1], err)
 	}
 
-	if args.FromPath == "" {
-		return fmt.Errorf("missing FROM path in config")
+	if args.From == "" {
+		return fmt.Errorf("missing FROM ref in config")
 	}
 	if len(args.Files) == 0 {
 		return fmt.Errorf("missing files to add in config")
 	}
-	if (args.DestPath == nil || *args.DestPath == "") && args.DestRegistry == nil {
-		return fmt.Errorf("missing dest path or dest registry")
+	if args.Dest == "" {
+		return fmt.Errorf("missing dest ref in config")
 	}
 
 	policy, err := signature.DefaultPolicy(nil)
@@ -440,92 +447,21 @@ func main0() error {
 		return fmt.Errorf("error setting up docker registry client policy context: %w", err)
 	}
 
-	if !args.FromPath.Exists() {
-		if args.FromRegistry != nil {
-			var url string
-			if args.FromRegistry.Url == nil {
-				url = ""
-			} else {
-				url = fmt.Sprintf("%s/", *args.FromRegistry.Url)
-			}
-			sourceRef, err := docker.Transport.ParseReference(fmt.Sprintf(
-				"//%s%s:%s",
-				url,
-				args.FromRegistry.Name,
-				args.FromRegistry.Tag,
-			))
-			if err != nil {
-				panic(err)
-			}
-			destRef, err := archive.Transport.ParseReference(args.FromPath.Raw())
-			if err != nil {
-				panic(err)
-			}
-			_, err = imagecopy.Image(
-				context.TODO(),
-				policyContext,
-				destRef,
-				sourceRef,
-				&imagecopy.Options{
-					SourceCtx: &types.SystemContext{
-						DockerAuthConfig: &types.DockerAuthConfig{
-							Username: def(args.FromRegistry.User, ""),
-							Password: def(args.FromRegistry.Password, ""),
-						},
-					},
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("error pulling FROM image %s: %w", args.FromRegistry.Name, err)
-			}
-		} else {
-			return fmt.Errorf("no FROM image exists at %s, and no registry target configured to pull from", args.FromPath)
-		}
+	destRef, err := alltransports.ParseImageName(args.Dest)
+	if err != nil {
+		return fmt.Errorf("invalid dest image ref %s: %w", args.From, err)
 	}
-	var destPath AbsPath
-	if args.DestPath != nil {
-		destPath = *args.DestPath
-	} else {
-		t, err := os.CreateTemp("", ".dinker-image-*")
+
+	if !args.From.Exists() {
+		if args.FromPull == "" {
+			return fmt.Errorf("no FROM image exists at %s, and no pull ref configured to pull from", args.From)
+		}
+		log.Printf("Pulling from image...")
+		sourceRef, err := alltransports.ParseImageName(args.FromPull)
 		if err != nil {
-			return fmt.Errorf("unable to create temp file to write generated image to: %w", err)
+			return fmt.Errorf("error parsing FROM pull ref %s: %w", args.FromPull, err)
 		}
-		t0, err := filepath.Abs(t.Name())
-		if err != nil {
-			panic(err)
-		}
-		destPath = AbsPath(t0)
-		if err := t.Close(); err != nil {
-			log.Printf("Couldn't close temp file at %s: %s", destPath, err)
-		}
-		defer func() {
-			if err := os.Remove(destPath.Raw()); err != nil {
-				log.Printf("Error deleting temp image file at %s: %s", destPath, err)
-			}
-		}()
-	}
-	if err := BuildImage(BuildImageArgs{
-		FromPath:   args.FromPath,
-		Files:      args.Files,
-		Cmd:        args.Cmd,
-		AddEnv:     args.AddEnv,
-		ClearEnv:   args.ClearEnv,
-		WorkingDir: args.WorkingDir,
-		DestPath:   destPath,
-	}); err != nil {
-		return fmt.Errorf("error building image: %w", err)
-	}
-	if args.DestRegistry != nil {
-		sourceRef, err := archive.Transport.ParseReference(destPath.Raw())
-		if err != nil {
-			panic(err)
-		}
-		destRef, err := docker.Transport.ParseReference(fmt.Sprintf(
-			"//%s/%s:%s",
-			def(args.DestRegistry.Url, "localhost"),
-			args.DestRegistry.Name,
-			args.DestRegistry.Tag,
-		))
+		destRef, err := archive.Transport.ParseReference(args.From.Raw())
 		if err != nil {
 			panic(err)
 		}
@@ -537,16 +473,71 @@ func main0() error {
 			&imagecopy.Options{
 				SourceCtx: &types.SystemContext{
 					DockerAuthConfig: &types.DockerAuthConfig{
-						Username: def(args.DestRegistry.User, ""),
-						Password: def(args.DestRegistry.Password, ""),
+						Username: def(args.FromCreds.User, ""),
+						Password: def(args.FromCreds.Password, ""),
 					},
 				},
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("error uploading image: %w", err)
+			return fmt.Errorf("error pulling FROM image %s: %w", args.FromPull, err)
 		}
+		log.Printf("Pulling from image... done.")
 	}
+
+	t, err := os.MkdirTemp("", ".dinker-image-*")
+	if err != nil {
+		return fmt.Errorf("unable to create temp file to write generated image to: %w", err)
+	}
+	t0, err := filepath.Abs(t)
+	if err != nil {
+		panic(err)
+	}
+	destDirPath := AbsPath(t0)
+	defer func() {
+		if err := os.RemoveAll(destDirPath.Raw()); err != nil {
+			log.Printf("Error deleting temp image dir at %s: %s", destDirPath, err)
+		}
+	}()
+
+	log.Printf("Building image...")
+	if err := BuildImage(BuildImageArgs{
+		FromPath:    args.From,
+		Files:       args.Files,
+		Cmd:         args.Cmd,
+		AddEnv:      args.AddEnv,
+		ClearEnv:    args.ClearEnv,
+		WorkingDir:  args.WorkingDir,
+		DestDirPath: destDirPath,
+	}); err != nil {
+		return fmt.Errorf("error building image: %w", err)
+	}
+	log.Printf("Building image... done.")
+	sourceRef, err := ocidir.Transport.ParseReference(destDirPath.Raw())
+	if err != nil {
+		panic(err)
+	}
+
+	log.Printf("Pushing to %s...", args.Dest)
+	_, err = imagecopy.Image(
+		context.TODO(),
+		policyContext,
+		destRef,
+		sourceRef,
+		&imagecopy.Options{
+			DestinationCtx: &types.SystemContext{
+				DockerInsecureSkipTLSVerify: types.OptionalBoolTrue,
+				DockerAuthConfig: &types.DockerAuthConfig{
+					Username: def(args.DestCreds.User, ""),
+					Password: def(args.DestCreds.Password, ""),
+				},
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error uploading image: %w", err)
+	}
+	log.Printf("Pushing to %s... done.", args.Dest)
 	return nil
 }
 

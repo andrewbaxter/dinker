@@ -1,0 +1,9 @@
+!v1
+weights:
+  accounts:
+    1: 100
+  projects:
+    https://github.com/containers/image: 100
+    https://github.com/nlepage/go-tarfs: 100
+    https://github.com/opencontainers/go-digest: 100
+    https://github.com/opencontainers/image-spec: 100
