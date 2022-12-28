@@ -1,4 +1,4 @@
-package dinker
+package dinkerlib
 
 import (
 	"os"
