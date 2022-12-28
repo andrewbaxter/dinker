@@ -19,8 +19,8 @@ import (
 )
 
 type RegistryCreds struct {
-	User     *string `json:"user"`
-	Password *string `json:"password"`
+	User     string `json:"user"`
+	Password string `json:"password"`
 }
 
 type Args struct {
@@ -29,13 +29,15 @@ type Args struct {
 	// Pull FROM oci image from this ref if it doesn't exist locally (skopeo-style)
 	FromPull string `json:"from_pull"`
 	// Credentials to pull FROM if necessary
-	FromCreds RegistryCreds `json:"from_registry"`
+	FromUser     string `json:"from_user"`
+	FromPassword string `json:"from_password"`
 	// Save image to ref (skopeo-style)
 	Dest string
 	// Credentials to push to dest if necessary
-	DestCreds RegistryCreds                  `json:"dest_registry"`
-	Files     []dinkerlib.BuildImageArgsFile `json:"files"`
-	Cmd       []string                       `json:"cmd"`
+	DestUser     string                         `json:"dest_user"`
+	DestPassword string                         `json:"dest_password"`
+	Files        []dinkerlib.BuildImageArgsFile `json:"files"`
+	Cmd          []string                       `json:"cmd"`
 	// Add additional default environment values
 	AddEnv map[string]string `json:"add_env"`
 	// Clear inherited environment from FROM image
@@ -79,7 +81,7 @@ func main0() error {
 
 	destRef, err := alltransports.ParseImageName(args.Dest)
 	if err != nil {
-		return fmt.Errorf("invalid dest image ref %s: %w", args.From, err)
+		return fmt.Errorf("invalid dest image ref %s: %w", args.Dest, err)
 	}
 
 	if !args.From.Exists() {
@@ -103,8 +105,8 @@ func main0() error {
 			&imagecopy.Options{
 				SourceCtx: &types.SystemContext{
 					DockerAuthConfig: &types.DockerAuthConfig{
-						Username: dinkerlib.Def(args.FromCreds.User, ""),
-						Password: dinkerlib.Def(args.FromCreds.Password, ""),
+						Username: args.FromUser,
+						Password: args.FromPassword,
 					},
 				},
 			},
@@ -158,8 +160,8 @@ func main0() error {
 			DestinationCtx: &types.SystemContext{
 				DockerInsecureSkipTLSVerify: types.OptionalBoolTrue,
 				DockerAuthConfig: &types.DockerAuthConfig{
-					Username: dinkerlib.Def(args.DestCreds.User, ""),
-					Password: dinkerlib.Def(args.DestCreds.Password, ""),
+					Username: args.DestUser,
+					Password: args.DestPassword,
 				},
 			},
 		},

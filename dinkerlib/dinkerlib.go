@@ -39,9 +39,9 @@ func readTfsJson[T any](tfs fs.FS, p string) (out T, err error) {
 type BuildImageArgsFile struct {
 	Source AbsPath `json:"source"`
 	// Defaults to the filename of Source in /. Ex: if source is `a/b/c` the resulting image will have the file at `/c`
-	Dest *string `json:"dest"`
+	Dest string `json:"dest"`
 	// Parsed as octal, defaults to 0644
-	Mode *string `json:"mode"`
+	Mode string `json:"mode"`
 }
 
 type BuildImageArgsPort struct {
@@ -164,7 +164,7 @@ func BuildImage(args BuildImageArgs) error {
 			}
 			mode, err := strconv.ParseInt(Def(f.Mode, "644"), 8, 32)
 			if err != nil {
-				return fmt.Errorf("file %s mode %s is not valid octal: %w", f.Source, *f.Mode, err)
+				return fmt.Errorf("file %s mode %s is not valid octal: %w", f.Source, f.Mode, err)
 			}
 			if err := destTar.WriteHeader(&tar.Header{
 				Name: strings.TrimPrefix(Def(f.Dest, f.Source.Filename()), "/"),
