@@ -40,13 +40,13 @@ This is an example, where I have a Go binary `hello` in my current directory.
 
 3. Done!
 
-See `Args` in `go.mod` for the full config documentation. Only `from` `dest` and `files` are mandatory.
+See `Args` in `dinkerlib/args.go` for the full config documentation. Only `from` `dest` and `files` are mandatory.
 
 For `skopeo` references, see <https://github.com/containers/image/blob/main/docs/containers-transports.5.md> for a full list.
 
 # Usage (Library)
 
-There's one function: `BuildImage()`
+There's one function: `dinkerlib.BuildImage()`
 
 It takes a path to a FROM local oci-image tar file, and an output directory name.
 

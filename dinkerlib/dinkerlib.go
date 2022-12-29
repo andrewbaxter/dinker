@@ -36,31 +36,6 @@ func readTfsJson[T any](tfs fs.FS, p string) (out T, err error) {
 	return
 }
 
-type BuildImageArgsFile struct {
-	Source AbsPath `json:"source"`
-	// Defaults to the filename of Source in /. Ex: if source is `a/b/c` the resulting image will have the file at `/c`
-	Dest string `json:"dest"`
-	// Parsed as octal, defaults to 0644
-	Mode string `json:"mode"`
-}
-
-type BuildImageArgsPort struct {
-	Port int `json:"port"`
-	// `tcp`
-	Transport string `json:"transport"`
-}
-
-type BuildImageArgs struct {
-	FromPath    AbsPath
-	Files       []BuildImageArgsFile
-	Cmd         []string
-	AddEnv      map[string]string
-	ClearEnv    bool
-	WorkingDir  string
-	Ports       []BuildImageArgsPort `json:"ports"`
-	DestDirPath AbsPath
-}
-
 func BuildImage(args BuildImageArgs) error {
 	// Combine and write image
 	if err := os.MkdirAll(args.DestDirPath.Raw(), 0o755); err != nil {
@@ -284,9 +259,13 @@ func BuildImage(args BuildImageArgs) error {
 		OS:           fromConfig.OS,
 		Config: imagespec.ImageConfig{
 			Env:          env,
+			WorkingDir:   Def(args.WorkingDir, fromConfig.Config.WorkingDir),
+			User:         Def(args.User, fromConfig.Config.User),
+			Entrypoint:   args.Entrypoint,
 			Cmd:          args.Cmd,
-			WorkingDir:   args.WorkingDir,
 			ExposedPorts: ports,
+			StopSignal:   args.StopSignal,
+			Labels:       args.Labels,
 		},
 		RootFS: imagespec.RootFS{
 			Type:    "layers",

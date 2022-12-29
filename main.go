@@ -23,29 +23,6 @@ type RegistryCreds struct {
 	Password string `json:"password"`
 }
 
-type Args struct {
-	// Path to FROM oci image. If not present, pulls using FromPull
-	From dinkerlib.AbsPath `json:"from"`
-	// Pull FROM oci image from this ref if it doesn't exist locally (skopeo-style)
-	FromPull string `json:"from_pull"`
-	// Credentials to pull FROM if necessary
-	FromUser     string `json:"from_user"`
-	FromPassword string `json:"from_password"`
-	// Save image to ref (skopeo-style)
-	Dest string
-	// Credentials to push to dest if necessary
-	DestUser     string                         `json:"dest_user"`
-	DestPassword string                         `json:"dest_password"`
-	Files        []dinkerlib.BuildImageArgsFile `json:"files"`
-	Cmd          []string                       `json:"cmd"`
-	// Add additional default environment values
-	AddEnv map[string]string `json:"add_env"`
-	// Clear inherited environment from FROM image
-	ClearEnv   bool                           `json:"clear_env"`
-	Ports      []dinkerlib.BuildImageArgsPort `json:"ports"`
-	WorkingDir string                         `json:"working_dir"`
-}
-
 func main0() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("must have one argument: path to config json file")
