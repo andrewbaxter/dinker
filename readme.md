@@ -1,4 +1,4 @@
-This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
+Docker images are basically zip files, why should building them take any more privileges than writing files? This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
 
 All it can do is take a base image and add files to it, updating standard metadata (command, environment, ports).
 
@@ -40,7 +40,7 @@ This is an example, where I have a Go binary `hello` in my current directory.
 
 3. Done!
 
-See `Args` in `dinkerlib/args.go` for the full config documentation. Only `from` `dest` and `files` are mandatory.
+See `Args` in <args.go> for the full config documentation. Only `from` `dest` and `files` are mandatory.
 
 For `skopeo` references, see <https://github.com/containers/image/blob/main/docs/containers-transports.5.md> for a full list.
 
