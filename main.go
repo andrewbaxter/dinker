@@ -11,6 +11,7 @@ import (
 
 	"github.com/andrewbaxter/dinker/dinkerlib"
 	imagecopy "github.com/containers/image/v5/copy"
+	"github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/oci/archive"
 	ocidir "github.com/containers/image/v5/oci/layout"
 	"github.com/containers/image/v5/signature"
@@ -74,6 +75,10 @@ func main0() error {
 		if err != nil {
 			panic(err)
 		}
+		var noHttpVerify types.OptionalBool
+		if args.FromHttp {
+			noHttpVerify = types.OptionalBoolTrue
+		}
 		_, err = imagecopy.Image(
 			context.TODO(),
 			policyContext,
@@ -81,6 +86,7 @@ func main0() error {
 			sourceRef,
 			&imagecopy.Options{
 				SourceCtx: &types.SystemContext{
+					DockerInsecureSkipTLSVerify: noHttpVerify,
 					DockerAuthConfig: &types.DockerAuthConfig{
 						Username: args.FromUser,
 						Password: args.FromPassword,
@@ -128,19 +134,36 @@ func main0() error {
 	}
 
 	log.Printf("Pushing to %s...", args.Dest)
+	var noHttpVerify types.OptionalBool
+	if args.DestHttp {
+		noHttpVerify = types.OptionalBoolTrue
+	}
+	destSysCtx := types.SystemContext{
+		DockerInsecureSkipTLSVerify: noHttpVerify,
+		DockerAuthConfig: &types.DockerAuthConfig{
+			Username: args.DestUser,
+			Password: args.DestPassword,
+		},
+	}
+	destImg, err := destRef.NewImageDestination(context.TODO(), &destSysCtx)
+	if err != nil {
+		panic(err)
+	}
+	manifestFormat := ""
+	for _, format := range destImg.SupportedManifestMIMETypes() {
+		// Prefer docker manifest
+		if format == manifest.DockerV2Schema2MediaType {
+			manifestFormat = format
+		}
+	}
 	_, err = imagecopy.Image(
 		context.TODO(),
 		policyContext,
 		destRef,
 		sourceRef,
 		&imagecopy.Options{
-			DestinationCtx: &types.SystemContext{
-				DockerInsecureSkipTLSVerify: types.OptionalBoolTrue,
-				DockerAuthConfig: &types.DockerAuthConfig{
-					Username: args.DestUser,
-					Password: args.DestPassword,
-				},
-			},
+			ForceManifestMIMEType: manifestFormat,
+			DestinationCtx:        &destSysCtx,
 		},
 	)
 	if err != nil {

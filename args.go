@@ -10,12 +10,16 @@ type Args struct {
 	// Credentials to pull FROM if necessary
 	FromUser     string `json:"from_user"`
 	FromPassword string `json:"from_password"`
+	// True if source is over http (disable tls validation)
+	FromHttp bool `json:"from_http"`
 	// Save image to ref (skopeo-style)
 	Dest string `json:"dest"`
 	// Credentials to push to dest if necessary
-	DestUser     string                         `json:"dest_user"`
-	DestPassword string                         `json:"dest_password"`
-	Files        []dinkerlib.BuildImageArgsFile `json:"files"`
+	DestUser     string `json:"dest_user"`
+	DestPassword string `json:"dest_password"`
+	// True if dest is over http (disable tls validation)
+	DestHttp bool                           `json:"dest_http"`
+	Files    []dinkerlib.BuildImageArgsFile `json:"files"`
 	// Add additional default environment values
 	AddEnv map[string]string `json:"add_env"`
 	// Clear inherited environment from FROM image
