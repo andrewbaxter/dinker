@@ -47,62 +47,109 @@ The json file has these options:
 ### Required
 
 - `dest`
+
   Where to save the built image, using this format: <https://github.com/containers/image/blob/main/docs/containers-transports.5.md>.
+
+  This is a pattern - you can add the following strings which will be replaced with generated information:
+
+  - `{hash}` - A sha256 sum of all the information used to generate the image (note: this should be stable but has no formal specification and is unrelated to the pushed manifest hash).
+
+  - `{short_hash}` - The first hex digits of the hash
+
 - `files`
+
   Files to add to the image. This is an array of objects with these fields:
+
   - `source` - Required, the location of the file on the building system
+
   - `dest` - Optional, where to store the file in the image. If not specified, puts it at the root of the image with the same filename as `source`.
+
   - `mode` - Octal string with file mode (ex: 644)
 
 ### Required if no `from`
 
 - `arch`
+
   Defaults to `from` image architecture
+
 - `os`
+
   Defaults to `from` image os
 
 ### Optional
 
 - `from`
+
   Add onto the layers from this image (like `FROM` in Docker). This is a path to an OCI image archive tar file. If the file does not exist, it will download the image using `from_pull` and store it here. If not specified, use no base image (this will produce a single layer image with just the specified files).
+
 - `from_pull`
+
   Where to pull the `from` image if it doesn't exist, using this format: <https://github.com/containers/image/blob/main/docs/containers-transports.5.md>.
+
 - `from_user`
+
   Credentials for `from_pull` if necessary
+
 - `from_password`
+
   Credentials for `from_pull` if necessary
+
 - `from_http`
+
   True if `from_pull` source is over http (disable tls validation)
+
 - `dest_user`
+
   Credentials for `dest` if necessary
+
 - `dest_password`
+
   Credentials for `dest` if necessary
+
 - `dest_http`
+
   True if dest is over http (disable tls validation)
+
 - `add_env`
+
   Record with string key-value pairs. Add additional default environment values
+
 - `clear_env`
+
   Boolean. If true, don't inherit environment variables from `from` image.
+
 - `working_dir`
+
   Container working directory, defaults to `from` image working directory.
+
 - `user`
+
   User id to run process in container as. Defaults to value in `from` image
+
 - `entrypoint`
+
   Array of strings. See Docker documentation for details. This is _not_ inherited from the base image.
+
 - `cmd`
+
   Array of strings. See Docker documentation for details. This is _not_ inherited from the base image.
+
 - `ports`
 
   Ports within the container to expose. This is an array of records with fields:
 
   - `port` - Required, the port that the program within the container listens on
+
   - `transport` - Optional, defaults to `tcp`. `tcp` or `udp`.
 
   These are _not_ inherited from the base image.
 
 - `labels`
+
   String key-value record. Arbitrary metadata. These are _not_ inherited from the base image.
+
 - `stop_signal`
+
   The signal to use when stopping the container. Values like `SIGTERM` `SIGINT` `SIGQUIT`. This is _not_ inherited from the base image.
 
 For `skopeo` references, see for a full list.

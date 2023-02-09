@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/andrewbaxter/dinker/dinkerlib"
 	imagecopy "github.com/containers/image/v5/copy"
@@ -81,11 +82,6 @@ func main0() error {
 		return fmt.Errorf("error setting up docker registry client policy context: %w", err)
 	}
 
-	destRef, err := alltransports.ParseImageName(args.Dest)
-	if err != nil {
-		return fmt.Errorf("invalid dest image ref %s: %w", args.Dest, err)
-	}
-
 	if !args.From.Exists() {
 		if args.FromPull == "" {
 			return fmt.Errorf("no FROM image exists at %s, and no pull ref configured to pull from", args.From)
@@ -140,7 +136,7 @@ func main0() error {
 	}()
 
 	log.Printf("Building image...")
-	if err := dinkerlib.BuildImage(dinkerlib.BuildImageArgs{
+	hash, err := dinkerlib.BuildImage(dinkerlib.BuildImageArgs{
 		FromPath:    args.From,
 		Files:       args.Files,
 		Entrypoint:  args.Entrypoint,
@@ -149,13 +145,26 @@ func main0() error {
 		ClearEnv:    args.ClearEnv,
 		WorkingDir:  args.WorkingDir,
 		DestDirPath: destDirPath,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("error building image: %w", err)
 	}
 	log.Printf("Building image... done.")
 	sourceRef, err := ocidir.Transport.ParseReference(destDirPath.Raw())
 	if err != nil {
 		panic(err)
+	}
+
+	destString := args.Dest
+	for k, v := range map[string]string{
+		"hash":      hash,
+		"shortHash": hash[:8],
+	} {
+		destString = strings.ReplaceAll(destString, fmt.Sprintf("{%s}", k), v)
+	}
+	destRef, err := alltransports.ParseImageName(destString)
+	if err != nil {
+		return fmt.Errorf("invalid dest image ref %s: %w", args.Dest, err)
 	}
 
 	log.Printf("Pushing to %s...", args.Dest)

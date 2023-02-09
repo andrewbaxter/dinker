@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,7 +22,7 @@ import (
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func readTfsJson[T any](tfs fs.FS, p string) (out T, err error) {
+func readTarFsJson[T any](tfs fs.FS, p string) (out T, err error) {
 	f, err := tfs.Open(p)
 	if err != nil {
 		return out, fmt.Errorf("unable to open file %s in tar: %w", p, err)
@@ -36,14 +38,36 @@ func readTfsJson[T any](tfs fs.FS, p string) (out T, err error) {
 	return
 }
 
-func BuildImage(args BuildImageArgs) error {
-	// Combine and write image
+func canonicalJsonMarshal(sym any) []byte {
+	ser, err := json.Marshal(sym)
+	if err != nil {
+		panic(err)
+	}
+	// Work around go not supporting ordered serialization for random data types by
+	// deserializing once to simple types which will be ordered when re-serialized.
+	err = json.Unmarshal(ser, sym)
+	if err != nil {
+		panic(err)
+	}
+	ser, err = json.Marshal(sym)
+	if err != nil {
+		panic(err)
+	}
+	return ser
+}
+
+func BuildImage(args BuildImageArgs) (hash string, err error) {
+	hashData := map[string]any{}
+
 	if err := os.MkdirAll(args.DestDirPath.Raw(), 0o755); err != nil {
-		return fmt.Errorf("error creating staging dir for image at %s: %w", args.DestDirPath, err)
+		return "", fmt.Errorf("error creating staging dir for image at %s: %w", args.DestDirPath, err)
 	}
 
+	// Util functions
 	writeMemory := func(name string, contents []byte) error {
-		if err := ioutil.WriteFile(args.DestDirPath.Join(name).Raw(), contents, 0o600); err != nil {
+		p := args.DestDirPath.Join(name).Raw()
+		hashData[p] = contents
+		if err := ioutil.WriteFile(p, contents, 0o600); err != nil {
 			return fmt.Errorf("error writing tar file %s: %w", name, err)
 		}
 		return nil
@@ -52,13 +76,12 @@ func BuildImage(args BuildImageArgs) error {
 		return fmt.Sprintf("blobs/%s/%s", digest.Algorithm().String(), digest.Hex())
 	}
 	writeBlob := func(digest digest.Digest, contents []byte) error {
-		return writeMemory(blobPath(digest), contents)
+		p := blobPath(digest)
+		hashData[p] = contents
+		return writeMemory(p, contents)
 	}
 	buildJson := func(contents any) (digest.Digest, []byte) {
-		contents1, err := json.Marshal(contents)
-		if err != nil {
-			panic(err)
-		}
+		contents1 := canonicalJsonMarshal(contents)
 		d := sha256.New()
 		_, _ = d.Write(contents1)
 		return digest.NewDigest(
@@ -67,11 +90,7 @@ func BuildImage(args BuildImageArgs) error {
 		), contents1
 	}
 	writeJson := func(name string, contents any) error {
-		contents1, err := json.Marshal(contents)
-		if err != nil {
-			panic(err)
-		}
-		return writeMemory(name, contents1)
+		return writeMemory(name, canonicalJsonMarshal(contents))
 	}
 	writeBlobReader := func(digest digest.Digest, size int64, reader io.Reader) error {
 		p := args.DestDirPath.Join(blobPath(digest))
@@ -87,10 +106,13 @@ func BuildImage(args BuildImageArgs) error {
 				log.Printf("Error closing %s: %s", p, err)
 			}
 		}()
-		_, err = io.Copy(f, reader)
+		blobHash := sha256.New()
+		multiWrite := io.MultiWriter(blobHash, f)
+		_, err = io.Copy(multiWrite, reader)
 		if err != nil {
 			return fmt.Errorf("error writing layer to tar: %w", err)
 		}
+		hashData[p.Raw()] = hex.EncodeToString(blobHash.Sum([]byte{}))
 		return nil
 	}
 
@@ -98,7 +120,7 @@ func BuildImage(args BuildImageArgs) error {
 	if err := writeJson("oci-layout", imagespec.ImageLayout{
 		Version: "1.0.0",
 	}); err != nil {
-		return err
+		return "", err
 	}
 
 	layerDiffIds := []digest.Digest{}
@@ -114,7 +136,7 @@ func BuildImage(args BuildImageArgs) error {
 		// Build image in temp file
 		tmpLayer, err := os.CreateTemp("", ".dinker-layer-*") // todo delete
 		if err != nil {
-			return fmt.Errorf("error creating temp file for new layer: %w", err)
+			return "", fmt.Errorf("error creating temp file for new layer: %w", err)
 		}
 		defer func() {
 			err := os.Remove(tmpLayer.Name())
@@ -135,41 +157,41 @@ func BuildImage(args BuildImageArgs) error {
 		for _, f := range args.Files {
 			stat, err := os.Stat(f.Source.Raw())
 			if err != nil {
-				return fmt.Errorf("error looking up metadata for layer file %s: %w", f.Source, err)
+				return "", fmt.Errorf("error looking up metadata for layer file %s: %w", f.Source, err)
 			}
 			mode, err := strconv.ParseInt(Def(f.Mode, "644"), 8, 32)
 			if err != nil {
-				return fmt.Errorf("file %s mode %s is not valid octal: %w", f.Source, f.Mode, err)
+				return "", fmt.Errorf("file %s mode %s is not valid octal: %w", f.Source, f.Mode, err)
 			}
 			if err := destTar.WriteHeader(&tar.Header{
 				Name: strings.TrimPrefix(Def(f.Dest, f.Source.Filename()), "/"),
 				Mode: mode,
 				Size: stat.Size(),
 			}); err != nil {
-				return fmt.Errorf("error writing tar header for %s: %w", f.Source, err)
+				return "", fmt.Errorf("error writing tar header for %s: %w", f.Source, err)
 			}
 			fSource, err := os.Open(f.Source.Raw())
 			if err != nil {
-				return fmt.Errorf("error opening source file %s for adding to layer: %w", f.Source, err)
+				return "", fmt.Errorf("error opening source file %s for adding to layer: %w", f.Source, err)
 			}
 			_, err = io.Copy(destTar, fSource)
 			if err != nil {
-				return fmt.Errorf("error copying data from %s: %w", f.Source, err)
+				return "", fmt.Errorf("error copying data from %s: %w", f.Source, err)
 			}
 			err = fSource.Close()
 			if err != nil {
-				return fmt.Errorf("error closing %s after reading: %w", f.Source, err)
+				return "", fmt.Errorf("error closing %s after reading: %w", f.Source, err)
 			}
 		}
 		if err := destTar.Close(); err != nil {
-			return fmt.Errorf("error closing layer tar: %w", err)
+			return "", fmt.Errorf("error closing layer tar: %w", err)
 		}
 		if err := gzWriter.Close(); err != nil {
-			return fmt.Errorf("error closing layer tar gz: %w", err)
+			return "", fmt.Errorf("error closing layer tar gz: %w", err)
 		}
 		stat, err := tmpLayer.Stat()
 		if err != nil {
-			return fmt.Errorf("error reading temp layer file metadata: %w", err)
+			return "", fmt.Errorf("error reading temp layer file metadata: %w", err)
 		}
 
 		layerDigest := digest.NewDigest(digest.SHA256, compressedDigester)
@@ -186,7 +208,7 @@ func BuildImage(args BuildImageArgs) error {
 		}
 		err = writeBlobReader(layerDigest, stat.Size(), tmpLayer)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -205,7 +227,7 @@ func BuildImage(args BuildImageArgs) error {
 				return fmt.Errorf("unable to open `from` image as tar: %w", err)
 			}
 
-			index, err := readTfsJson[imagespec.Index](tfs, "index.json")
+			index, err := readTarFsJson[imagespec.Index](tfs, "index.json")
 			if err != nil {
 				return err
 			}
@@ -214,7 +236,7 @@ func BuildImage(args BuildImageArgs) error {
 					continue
 				}
 
-				manifest, err := readTfsJson[imagespec.Manifest](tfs, blobPath(m.Digest))
+				manifest, err := readTarFsJson[imagespec.Manifest](tfs, blobPath(m.Digest))
 				if err != nil {
 					return fmt.Errorf("unable to find manifest %s referenced in tar index: %w", m.Digest, err)
 				}
@@ -230,7 +252,7 @@ func BuildImage(args BuildImageArgs) error {
 					}
 				}
 
-				fromConfig, err = readTfsJson[imagespec.Image](tfs, blobPath(manifest.Config.Digest))
+				fromConfig, err = readTarFsJson[imagespec.Image](tfs, blobPath(manifest.Config.Digest))
 				if err != nil {
 					return fmt.Errorf("unable to find config %s referenced in image manifest: %w", manifest.Config.Digest, err)
 				}
@@ -238,7 +260,7 @@ func BuildImage(args BuildImageArgs) error {
 			}
 			return nil
 		}(); err != nil {
-			return fmt.Errorf("error reading FROM image %s: %w", args.FromPath, err)
+			return "", fmt.Errorf("error reading FROM image %s: %w", args.FromPath, err)
 		}
 	}
 	env := []string{}
@@ -248,6 +270,9 @@ func BuildImage(args BuildImageArgs) error {
 	for k, v := range args.AddEnv {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
+	sort.Slice(env, func(i int, j int) bool {
+		return env[i] < env[j]
+	})
 	ports := map[string]struct{}{}
 	if len(args.Ports) != 0 {
 		for _, p := range args.Ports {
@@ -275,7 +300,7 @@ func BuildImage(args BuildImageArgs) error {
 		},
 	})
 	if err := writeBlob(imageConfigDigest, imageConfig); err != nil {
-		return err
+		return "", err
 	}
 	imageManifestDigest, imageManifest := buildJson(imagespec.Manifest{
 		Versioned: specs.Versioned{
@@ -290,7 +315,7 @@ func BuildImage(args BuildImageArgs) error {
 		Layers: layerMetas,
 	})
 	if err := writeBlob(imageManifestDigest, imageManifest); err != nil {
-		return err
+		return "", err
 	}
 	if err := writeJson("index.json", imagespec.Index{
 		Versioned: specs.Versioned{
@@ -304,8 +329,9 @@ func BuildImage(args BuildImageArgs) error {
 			},
 		},
 	}); err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	hash1 := sha256.Sum256(canonicalJsonMarshal(hashData))
+	return hex.EncodeToString(hash1[:]), nil
 }
