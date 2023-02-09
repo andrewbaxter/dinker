@@ -45,7 +45,8 @@ func canonicalJsonMarshal(sym any) []byte {
 	}
 	// Work around go not supporting ordered serialization for random data types by
 	// deserializing once to simple types which will be ordered when re-serialized.
-	err = json.Unmarshal(ser, sym)
+	sym = nil
+	err = json.Unmarshal(ser, &sym)
 	if err != nil {
 		panic(err)
 	}
