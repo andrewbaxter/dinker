@@ -192,52 +192,54 @@ func BuildImage(args BuildImageArgs) error {
 
 	// Write `from` layers, pull `from` info
 	var fromConfig imagespec.Image
-	if err := func() error {
-		tf, err := os.Open(args.FromPath.Raw())
-		if err != nil {
-			return fmt.Errorf("unable to open `from` image: %w", err)
-		}
-		defer tf.Close()
-
-		tfs, err := tarfs.New(tf)
-		if err != nil {
-			return fmt.Errorf("unable to open `from` image as tar: %w", err)
-		}
-
-		index, err := readTfsJson[imagespec.Index](tfs, "index.json")
-		if err != nil {
-			return err
-		}
-		for _, m := range index.Manifests {
-			if m.MediaType != imagespec.MediaTypeImageManifest {
-				continue
-			}
-
-			manifest, err := readTfsJson[imagespec.Manifest](tfs, blobPath(m.Digest))
+	if args.FromPath != "" {
+		if err := func() error {
+			tf, err := os.Open(args.FromPath.Raw())
 			if err != nil {
-				return fmt.Errorf("unable to find manifest %s referenced in tar index: %w", m.Digest, err)
+				return fmt.Errorf("unable to open `from` image: %w", err)
 			}
-			layerMetas = append(layerMetas, manifest.Layers...)
-			for _, layer := range manifest.Layers {
-				source, err := tfs.Open(blobPath(layer.Digest))
-				if err != nil {
-					return fmt.Errorf("error opening layer %s referenced in image manifest: %w", layer.Digest, err)
-				}
-				err = writeBlobReader(layer.Digest, layer.Size, source)
-				if err != nil {
-					return fmt.Errorf("error copying `from` layer %s to new image: %w", layer.Digest, err)
-				}
+			defer tf.Close()
+
+			tfs, err := tarfs.New(tf)
+			if err != nil {
+				return fmt.Errorf("unable to open `from` image as tar: %w", err)
 			}
 
-			fromConfig, err = readTfsJson[imagespec.Image](tfs, blobPath(manifest.Config.Digest))
+			index, err := readTfsJson[imagespec.Index](tfs, "index.json")
 			if err != nil {
-				return fmt.Errorf("unable to find config %s referenced in image manifest: %w", manifest.Config.Digest, err)
+				return err
 			}
-			layerDiffIds = append(layerDiffIds, fromConfig.RootFS.DiffIDs...)
+			for _, m := range index.Manifests {
+				if m.MediaType != imagespec.MediaTypeImageManifest {
+					continue
+				}
+
+				manifest, err := readTfsJson[imagespec.Manifest](tfs, blobPath(m.Digest))
+				if err != nil {
+					return fmt.Errorf("unable to find manifest %s referenced in tar index: %w", m.Digest, err)
+				}
+				layerMetas = append(layerMetas, manifest.Layers...)
+				for _, layer := range manifest.Layers {
+					source, err := tfs.Open(blobPath(layer.Digest))
+					if err != nil {
+						return fmt.Errorf("error opening layer %s referenced in image manifest: %w", layer.Digest, err)
+					}
+					err = writeBlobReader(layer.Digest, layer.Size, source)
+					if err != nil {
+						return fmt.Errorf("error copying `from` layer %s to new image: %w", layer.Digest, err)
+					}
+				}
+
+				fromConfig, err = readTfsJson[imagespec.Image](tfs, blobPath(manifest.Config.Digest))
+				if err != nil {
+					return fmt.Errorf("unable to find config %s referenced in image manifest: %w", manifest.Config.Digest, err)
+				}
+				layerDiffIds = append(layerDiffIds, fromConfig.RootFS.DiffIDs...)
+			}
+			return nil
+		}(); err != nil {
+			return fmt.Errorf("error reading FROM image %s: %w", args.FromPath, err)
 		}
-		return nil
-	}(); err != nil {
-		return fmt.Errorf("error reading FROM image %s: %w", args.FromPath, err)
 	}
 	env := []string{}
 	if !args.ClearEnv {
@@ -249,14 +251,14 @@ func BuildImage(args BuildImageArgs) error {
 	ports := map[string]struct{}{}
 	if len(args.Ports) != 0 {
 		for _, p := range args.Ports {
-			ports[fmt.Sprintf("%d/%s", p.Port, p.Transport)] = struct{}{}
+			ports[fmt.Sprintf("%d/%s", p.Port, Def(p.Transport, "tcp"))] = struct{}{}
 		}
 	}
 
 	// Write remaining meta files
 	imageConfigDigest, imageConfig := buildJson(imagespec.Image{
-		Architecture: fromConfig.Architecture,
-		OS:           fromConfig.OS,
+		Architecture: Def(args.Architecture, fromConfig.Architecture),
+		OS:           Def(args.Os, fromConfig.OS),
 		Config: imagespec.ImageConfig{
 			Env:          env,
 			WorkingDir:   Def(args.WorkingDir, fromConfig.Config.WorkingDir),

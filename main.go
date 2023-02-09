@@ -24,6 +24,30 @@ type RegistryCreds struct {
 	Password string `json:"password"`
 }
 
+type Args struct {
+	From         dinkerlib.AbsPath              `json:"from"`
+	FromPull     string                         `json:"from_pull"`
+	FromUser     string                         `json:"from_user"`
+	FromPassword string                         `json:"from_password"`
+	FromHttp     bool                           `json:"from_http"`
+	Dest         string                         `json:"dest"`
+	DestUser     string                         `json:"dest_user"`
+	DestPassword string                         `json:"dest_password"`
+	DestHttp     bool                           `json:"dest_http"`
+	Architecture string                         `json:"arch"`
+	Os           string                         `json:"os"`
+	Files        []dinkerlib.BuildImageArgsFile `json:"files"`
+	AddEnv       map[string]string              `json:"add_env"`
+	ClearEnv     bool                           `json:"clear_env"`
+	WorkingDir   string                         `json:"working_dir"`
+	User         string                         `json:"user"`
+	Entrypoint   []string                       `json:"entrypoint"`
+	Cmd          []string                       `json:"cmd"`
+	Ports        []dinkerlib.BuildImageArgsPort `json:"ports"`
+	Labels       map[string]string              `json:"labels"`
+	StopSignal   string                         `json:"stop_signal"`
+}
+
 func main0() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("must have one argument: path to config json file")
@@ -119,6 +143,7 @@ func main0() error {
 	if err := dinkerlib.BuildImage(dinkerlib.BuildImageArgs{
 		FromPath:    args.From,
 		Files:       args.Files,
+		Entrypoint:  args.Entrypoint,
 		Cmd:         args.Cmd,
 		AddEnv:      args.AddEnv,
 		ClearEnv:    args.ClearEnv,

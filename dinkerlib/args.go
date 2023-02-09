@@ -10,13 +10,20 @@ type BuildImageArgsFile struct {
 
 type BuildImageArgsPort struct {
 	Port int `json:"port"`
-	// `tcp` or `udp`
+	// `tcp` or `udp`, defaults to `tcp`
 	Transport string `json:"transport"`
 }
 
 type BuildImageArgs struct {
+	// optional, if zero then "scratch" (no base layers, need Architecture and Os below)
 	FromPath AbsPath
-	Files    []BuildImageArgsFile
+	// Defaults to FROM image architecture
+	Architecture string
+	// Defaults to FROM image os
+	Os string
+	// Files to add to the image
+	Files []BuildImageArgsFile
+	// Don't inherit env from FROM image
 	ClearEnv bool
 	AddEnv   map[string]string
 	// Defaults to FROM image working dir
@@ -25,7 +32,7 @@ type BuildImageArgs struct {
 	User        string
 	Entrypoint  []string
 	Cmd         []string
-	Ports       []BuildImageArgsPort `json:"ports"`
+	Ports       []BuildImageArgsPort
 	StopSignal  string
 	Labels      map[string]string
 	DestDirPath AbsPath
