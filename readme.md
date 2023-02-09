@@ -152,14 +152,10 @@ The json file has these options:
 
   The signal to use when stopping the container. Values like `SIGTERM` `SIGINT` `SIGQUIT`. This is _not_ inherited from the base image.
 
-For `skopeo` references, see for a full list.
-
 # Usage (Library)
 
 There's one function: `dinkerlib.BuildImage()`
 
-It takes a path to a FROM local oci-image tar file, and an output directory name.
+It takes a path to a local oci-image tar file, and an output directory name. It returns a hash of the inputs as used in the interpolation of `dest` on the command line above.
 
-The image is constructed in the directory with the OCI layout, but it isn't put into a tar file.
-
-You can convert it to other formats or upload it using `Image` in `"github.com/containers/image/v5/copy"`, with a source reference generated using `Transport.ParseReference` in `"github.com/containers/image/v5/copy"`.
+The image is constructed in the directory with the OCI layout, but it isn't put into a tar file or pushed anywhere - you can convert it to other formats or upload it using `Image` in `"github.com/containers/image/v5/copy"`, with a source reference generated using `Transport.ParseReference` in `"github.com/containers/image/v5/copy"`.
