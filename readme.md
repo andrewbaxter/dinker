@@ -1,4 +1,4 @@
-Docker images are basically zip files, why should building them take any more privileges than writing files? This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
+ocker images are basically zip files, why should building them take any more privileges than writing files? This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
 
 All it can do is take a base image and add files to it, updating standard metadata (command, environment, ports), and pushing the result somewhere.
 
@@ -8,7 +8,46 @@ It's has both a CLI command and a public API for use in other Go code.
 
 `go install github.com/andrewbaxter/dinker`
 
-# Usage (Command line)
+# Usage
+
+## Terraform (via Terrars)
+
+See <https://github.com/andrewbaxter/terrars/tree/master/helloworld> which has an example of creating a statically linked binary and publishing it as a minimal Docker image.
+
+## Github Actions
+
+Build your image contents in one job, then add this job to assemble it to your workflow:
+
+```yaml
+jobs:
+  docker:
+    runs-on: ghcr.io/andrewbaxter/dinker:latest
+    steps:
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+        go build
+        for tag in "latest" "$GITHUB_REF_NAME"
+        do
+          ./dinker <<ELEPHANT
+          {
+            "dest": "docker://ghcr.io/you/yourpackage:$tag",
+            "dest_user": "$GITHUB_ACTOR",
+            "dest_password": "$GITHUB_TOKEN",
+            "arch": "amd64",
+            "os": "linux",
+            "files": [
+              {
+                "source": "yourbinary",
+                "mode": "755"
+              }
+            ],
+          }
+          ELEPHANT
+        done
+```
+
+## Command line
 
 This is an example, where I have a Go binary `hello` in my current directory.
 
@@ -39,6 +78,14 @@ This is an example, where I have a Go binary `hello` in my current directory.
 2. Run `dinker dinker.json`
 
 3. Done!
+
+## Library
+
+There's one function: `dinkerlib.BuildImage()`
+
+It takes a path to a local oci-image tar file, and an output directory name. It returns a hash of the inputs as used in the interpolation of `dest` on the command line above.
+
+The image is constructed in the directory with the OCI layout, but it isn't put into a tar file or pushed anywhere - you can convert it to other formats or upload it using `Image` in `"github.com/containers/image/v5/copy"`, with a source reference generated using `Transport.ParseReference` in `"github.com/containers/image/v5/copy"`.
 
 # Json reference
 
@@ -151,11 +198,3 @@ The json file has these options:
 - `stop_signal`
 
   The signal to use when stopping the container. Values like `SIGTERM` `SIGINT` `SIGQUIT`. This is _not_ inherited from the base image.
-
-# Usage (Library)
-
-There's one function: `dinkerlib.BuildImage()`
-
-It takes a path to a local oci-image tar file, and an output directory name. It returns a hash of the inputs as used in the interpolation of `dest` on the command line above.
-
-The image is constructed in the directory with the OCI layout, but it isn't put into a tar file or pushed anywhere - you can convert it to other formats or upload it using `Image` in `"github.com/containers/image/v5/copy"`, with a source reference generated using `Transport.ParseReference` in `"github.com/containers/image/v5/copy"`.
