@@ -15,7 +15,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CGO_ENABLED=0 go build -tags containers_image_openpgp
-          for tag in "latest" "$GITHUB_REF_NAME"; do ./dinker << ELEPHANT
+          for tag in "latest" "$GITHUB_REF_NAME"; do ./dinker <(cat << ELEPHANT
           {
             "dest": "docker://ghcr.io/andrewbaxter/dinker:$tag",
             "dest_user": "$GITHUB_ACTOR",
@@ -30,4 +30,4 @@ jobs:
             ],
           }
           ELEPHANT
-          done
+          ); done
