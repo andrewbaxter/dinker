@@ -82,7 +82,7 @@ func main0() error {
 		return fmt.Errorf("error setting up docker registry client policy context: %w", err)
 	}
 
-	if !args.From.Exists() {
+	if args.From != "" && !args.From.Exists() {
 		if args.FromPull == "" {
 			return fmt.Errorf("no FROM image exists at %s, and no pull ref configured to pull from", args.From)
 		}
