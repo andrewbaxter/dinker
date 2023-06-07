@@ -1,4 +1,4 @@
-ocker images are basically zip files, why should building them take any more privileges than writing files? This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
+Docker images are basically zip files, why should building them take any more privileges than writing files? This is a zero-privilege, zero-capability, zero-permission, zero-container, zero-chroot, tiny OCI image creator.
 
 All it can do is take a base image and add files to it, updating standard metadata (command, environment, ports), and pushing the result somewhere.
 
