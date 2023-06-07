@@ -63,7 +63,7 @@ func main0() error {
 		return fmt.Errorf("error parsing config json at %s: %w", os.Args[1], err)
 	}
 
-	if args.From == "" {
+	if args.From == "" && args.Os == "" && args.Architecture == "" {
 		return fmt.Errorf("missing FROM ref in config")
 	}
 	if len(args.Files) == 0 {
