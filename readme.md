@@ -26,25 +26,25 @@ jobs:
       - env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-        go build
-        for tag in "latest" "$GITHUB_REF_NAME"
-        do
-          ./dinker <<ELEPHANT
-          {
-            "dest": "docker://ghcr.io/you/yourpackage:$tag",
-            "dest_user": "$GITHUB_ACTOR",
-            "dest_password": "$GITHUB_TOKEN",
-            "arch": "amd64",
-            "os": "linux",
-            "files": [
-              {
-                "source": "yourbinary",
-                "mode": "755"
-              }
-            ],
-          }
-          ELEPHANT
-        done
+          go build
+          for tag in "latest" "$GITHUB_REF_NAME"
+          do
+            ./dinker <<ELEPHANT
+            {
+              "dest": "docker://ghcr.io/you/yourpackage:$tag",
+              "dest_user": "$GITHUB_ACTOR",
+              "dest_password": "$GITHUB_TOKEN",
+              "arch": "amd64",
+              "os": "linux",
+              "files": [
+                {
+                  "source": "yourbinary",
+                  "mode": "755"
+                }
+              ],
+            }
+            ELEPHANT
+          done
 ```
 
 ## Command line
