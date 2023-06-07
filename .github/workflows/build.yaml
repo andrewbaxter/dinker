@@ -27,7 +27,7 @@ jobs:
                 "source": "dinker",
                 "mode": "755"
               }
-            ],
+            ]
           }
           ELEPHANT
           ); done
