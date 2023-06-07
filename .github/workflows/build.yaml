@@ -15,24 +15,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CGO_ENABLED=0 go build -tags containers_image_openpgp
-          for tag in "latest" "$GITHUB_REF_NAME"
-          do
-            ./dinker <<ELEPHANT
-            {
-              "dest": [
-                "docker://ghcr.io/andrewbaxter/dinker:latest",
-                "docker://ghcr.io/andrewbaxter/dinker:$GITHUB_REF_NAME",
-              ],
-              "dest_user": "$GITHUB_ACTOR",
-              "dest_password": "$GITHUB_TOKEN",
-              "arch": "amd64",
-              "os": "linux",
-              "files": [
-                {
-                  "source": "dinker",
-                  "mode": "755"
-                }
-              ],
-            }
-            ELEPHANT
-          done
+          for tag in "latest" "$GITHUB_REF_NAME"; do ./dinker << ELEPHANT
+          {
+            "dest": "docker://ghcr.io/andrewbaxter/dinker:$tag",
+            "dest_user": "$GITHUB_ACTOR",
+            "dest_password": "$GITHUB_TOKEN",
+            "arch": "amd64",
+            "os": "linux",
+            "files": [
+              {
+                "source": "dinker",
+                "mode": "755"
+              }
+            ],
+          }
+          ELEPHANT; done
