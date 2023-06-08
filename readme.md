@@ -16,7 +16,7 @@ See <https://github.com/andrewbaxter/terrars/tree/master/helloworld> which has a
 
 ## Github Actions
 
-Build your image contents in one job, then add this job to assemble it to your workflow:
+Something like this works:
 
 ```yaml
 name: Build
@@ -37,25 +37,34 @@ jobs:
         with:
           command: build
           args: --release
-      - run: |
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           cat > dinker.json << ELEPHANT
           {
-            "dest": "docker://ghcr.io/andrewbaxter/somewords:$tag",
-            "dest_user": "$GITHUB_ACTOR",
-            "dest_password": "$GITHUB_TOKEN",
+            "dests": [
+              {
+                "ref": "docker://ghcr.io/andrewbaxter/somewords:$GITHUB_REF_NAME",
+                "user": "$GITHUB_ACTOR",
+                "password": "$GITHUB_TOKEN"
+              },
+              {
+                "ref": "docker://ghcr.io/andrewbaxter/somewords:latest",
+                "user": "$GITHUB_ACTOR",
+                "password": "$GITHUB_TOKEN"
+              }
+            ],
             "arch": "amd64",
             "os": "linux",
             "files": [
               {
-                "source": "somewords",
+                "source": "target/release/somewords",
                 "mode": "755"
               }
             ]
           }
           ELEPHANT
-      - uses: ghcr.io/rendaw/dinker:latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker://ghcr.io/andrewbaxter/dinker:latest
         with:
           args: /dinker dinker.json
 ```
@@ -82,7 +91,7 @@ This is an example, where I have a Go binary `hello` in my current directory.
    }
    ```
 
-   This says to base the image on Alpine, add `hello` at the root of the filesystem, and on starting run it.
+   This says to base the image on Alpine, add `hello` at the root of the filesystem, and by default run it.
 
    If `alpine.tar` doesn't exist locally, pull it from the public registry.
 
