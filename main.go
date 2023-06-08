@@ -26,10 +26,10 @@ type RegistryCreds struct {
 }
 
 type ConfigDest struct {
-	Ref      string `json:"dest"`
-	User     string `json:"dest_user"`
-	Password string `json:"dest_password"`
-	Http     bool   `json:"dest_http"`
+	Ref      string `json:"ref"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Http     bool   `json:"http"`
 }
 
 type Config struct {
@@ -169,7 +169,11 @@ func main0() error {
 		panic(err)
 	}
 
-	for _, dest := range args.Dests {
+	for i, dest := range args.Dests {
+		if dest.Ref == "" {
+			log.Printf("Warning! Missing ref in dest %d, skipping", i)
+			continue
+		}
 		destString := dest.Ref
 		for k, v := range map[string]string{
 			"hash":       hash,
