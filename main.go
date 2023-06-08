@@ -25,16 +25,20 @@ type RegistryCreds struct {
 	Password string `json:"password"`
 }
 
-type Args struct {
+type ConfigDest struct {
+	Ref      string `json:"dest"`
+	User     string `json:"dest_user"`
+	Password string `json:"dest_password"`
+	Http     bool   `json:"dest_http"`
+}
+
+type Config struct {
 	From         dinkerlib.AbsPath              `json:"from"`
 	FromPull     string                         `json:"from_pull"`
 	FromUser     string                         `json:"from_user"`
 	FromPassword string                         `json:"from_password"`
 	FromHttp     bool                           `json:"from_http"`
-	Dest         string                         `json:"dest"`
-	DestUser     string                         `json:"dest_user"`
-	DestPassword string                         `json:"dest_password"`
-	DestHttp     bool                           `json:"dest_http"`
+	Dests        []ConfigDest                   `json:"dests"`
 	Architecture string                         `json:"arch"`
 	Os           string                         `json:"os"`
 	Files        []dinkerlib.BuildImageArgsFile `json:"files"`
@@ -53,12 +57,22 @@ func main0() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("must have one argument: path to config json file")
 	}
-	var args Args
-	args0, err := ioutil.ReadFile(os.Args[1])
-	if err != nil {
-		return fmt.Errorf("error reading config at %s: %w", os.Args[1], err)
+	var args0 []byte
+	if os.Args[1] == "-" {
+		var err error
+		args0, err = ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("error reading config from stdin: %w", err)
+		}
+	} else {
+		var err error
+		args0, err = ioutil.ReadFile(os.Args[1])
+		if err != nil {
+			return fmt.Errorf("error reading config at %s: %w", os.Args[1], err)
+		}
 	}
-	err = json.Unmarshal(args0, &args)
+	var args Config
+	err := json.Unmarshal(args0, &args)
 	if err != nil {
 		return fmt.Errorf("error parsing config json at %s: %w", os.Args[1], err)
 	}
@@ -69,8 +83,8 @@ func main0() error {
 	if len(args.Files) == 0 {
 		return fmt.Errorf("missing files to add in config")
 	}
-	if args.Dest == "" {
-		return fmt.Errorf("missing dest ref in config")
+	if len(args.Dests) == 0 {
+		return fmt.Errorf("missing dest in config")
 	}
 
 	policy, err := signature.DefaultPolicy(nil)
@@ -155,55 +169,57 @@ func main0() error {
 		panic(err)
 	}
 
-	destString := args.Dest
-	for k, v := range map[string]string{
-		"hash":       hash,
-		"short_hash": hash[:8],
-	} {
-		destString = strings.ReplaceAll(destString, fmt.Sprintf("{%s}", k), v)
-	}
-	destRef, err := alltransports.ParseImageName(destString)
-	if err != nil {
-		return fmt.Errorf("invalid dest image ref %s: %w", args.Dest, err)
-	}
-
-	log.Printf("Pushing to %s...", args.Dest)
-	var noHttpVerify types.OptionalBool
-	if args.DestHttp {
-		noHttpVerify = types.OptionalBoolTrue
-	}
-	destSysCtx := types.SystemContext{
-		DockerInsecureSkipTLSVerify: noHttpVerify,
-		DockerAuthConfig: &types.DockerAuthConfig{
-			Username: args.DestUser,
-			Password: args.DestPassword,
-		},
-	}
-	destImg, err := destRef.NewImageDestination(context.TODO(), &destSysCtx)
-	if err != nil {
-		panic(err)
-	}
-	manifestFormat := ""
-	for _, format := range destImg.SupportedManifestMIMETypes() {
-		// Prefer docker manifest
-		if format == manifest.DockerV2Schema2MediaType {
-			manifestFormat = format
+	for _, dest := range args.Dests {
+		destString := dest.Ref
+		for k, v := range map[string]string{
+			"hash":       hash,
+			"short_hash": hash[:8],
+		} {
+			destString = strings.ReplaceAll(destString, fmt.Sprintf("{%s}", k), v)
 		}
+		destRef, err := alltransports.ParseImageName(destString)
+		if err != nil {
+			return fmt.Errorf("invalid dest image ref %s: %w", dest.Ref, err)
+		}
+
+		log.Printf("Pushing to %s...", destString)
+		var noHttpVerify types.OptionalBool
+		if dest.Http {
+			noHttpVerify = types.OptionalBoolTrue
+		}
+		destSysCtx := types.SystemContext{
+			DockerInsecureSkipTLSVerify: noHttpVerify,
+			DockerAuthConfig: &types.DockerAuthConfig{
+				Username: dest.User,
+				Password: dest.Password,
+			},
+		}
+		destImg, err := destRef.NewImageDestination(context.TODO(), &destSysCtx)
+		if err != nil {
+			panic(err)
+		}
+		manifestFormat := ""
+		for _, format := range destImg.SupportedManifestMIMETypes() {
+			// Prefer docker manifest
+			if format == manifest.DockerV2Schema2MediaType {
+				manifestFormat = format
+			}
+		}
+		_, err = imagecopy.Image(
+			context.TODO(),
+			policyContext,
+			destRef,
+			sourceRef,
+			&imagecopy.Options{
+				ForceManifestMIMEType: manifestFormat,
+				DestinationCtx:        &destSysCtx,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error uploading image: %w", err)
+		}
+		log.Printf("Pushing to %s... done.", dest.Ref)
 	}
-	_, err = imagecopy.Image(
-		context.TODO(),
-		policyContext,
-		destRef,
-		sourceRef,
-		&imagecopy.Options{
-			ForceManifestMIMEType: manifestFormat,
-			DestinationCtx:        &destSysCtx,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("error uploading image: %w", err)
-	}
-	log.Printf("Pushing to %s... done.", args.Dest)
 	return nil
 }
 

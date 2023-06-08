@@ -19,30 +19,45 @@ See <https://github.com/andrewbaxter/terrars/tree/master/helloworld> which has a
 Build your image contents in one job, then add this job to assemble it to your workflow:
 
 ```yaml
+name: Build
+on:
+  push:
+    tags:
+      - "*"
 jobs:
-  docker:
-    runs-on: ghcr.io/andrewbaxter/dinker:latest
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          go build
-          for tag in "latest" "$GITHUB_REF_NAME"; do ./dinker <(cat << ELEPHANT
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+      - run: |
+          cat > dinker.json << ELEPHANT
           {
-            "dest": "docker://ghcr.io/you/yourpackage:$tag",
+            "dest": "docker://ghcr.io/andrewbaxter/somewords:$tag",
             "dest_user": "$GITHUB_ACTOR",
             "dest_password": "$GITHUB_TOKEN",
             "arch": "amd64",
             "os": "linux",
             "files": [
               {
-                "source": "yourbinary",
+                "source": "somewords",
                 "mode": "755"
               }
             ]
           }
           ELEPHANT
-          ); done
+      - uses: ghcr.io/rendaw/dinker:latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: /dinker dinker.json
 ```
 
 ## Command line
@@ -93,13 +108,34 @@ The json file has these options:
 
 - `dest`
 
-  Where to save the built image, using this format: <https://github.com/containers/image/blob/main/docs/containers-transports.5.md>.
+  An array of places to save or push the built image.
 
-  This is a pattern - you can add the following strings which will be replaced with generated information:
+  The options for the elements are:
 
-  - `{hash}` - A sha256 sum of all the information used to generate the image (note: this should be stable but has no formal specification and is unrelated to the pushed manifest hash).
+  **Required**
 
-  - `{short_hash}` - The first hex digits of the hash
+  - `ref`
+    Where to save the built image, using this format: <https://github.com/containers/image/blob/main/docs/containers-transports.5.md>.
+
+    This is a pattern - you can add the following strings which will be replaced with generated information:
+
+    - `{hash}` - A sha256 sum of all the information used to generate the image (note: this should be stable but has no formal specification and is unrelated to the pushed manifest hash).
+
+    - `{short_hash}` - The first hex digits of the hash
+
+  **Optional**
+
+  - `user`
+
+    Credentials for pushing
+
+  - `password`
+
+    Credentials for pushing
+
+  - `http`
+
+    True if this dest is over http (disable tls validation)
 
 - `files`
 
@@ -142,18 +178,6 @@ The json file has these options:
 - `from_http`
 
   True if `from_pull` source is over http (disable tls validation)
-
-- `dest_user`
-
-  Credentials for `dest` if necessary
-
-- `dest_password`
-
-  Credentials for `dest` if necessary
-
-- `dest_http`
-
-  True if dest is over http (disable tls validation)
 
 - `add_env`
 
