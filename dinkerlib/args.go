@@ -29,11 +29,12 @@ type BuildImageArgs struct {
 	// Defaults to FROM image working dir
 	WorkingDir string
 	// Defaults to FROM image user
-	User        string
-	Entrypoint  []string
-	Cmd         []string
-	Ports       []BuildImageArgsPort
-	StopSignal  string
-	Labels      map[string]string
+	User       string
+	Entrypoint []string
+	Cmd        []string
+	Ports      []BuildImageArgsPort
+	StopSignal string
+	Labels     map[string]string
+	/// Where to place the built image as an oci-dir
 	DestDirPath AbsPath
 }

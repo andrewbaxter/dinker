@@ -71,19 +71,19 @@ func main0() error {
 			return fmt.Errorf("error reading config at %s: %w", os.Args[1], err)
 		}
 	}
-	var args Config
-	err := json.Unmarshal(args0, &args)
+	var config Config
+	err := json.Unmarshal(args0, &config)
 	if err != nil {
 		return fmt.Errorf("error parsing config json at %s: %w", os.Args[1], err)
 	}
 
-	if args.From == "" && args.Os == "" && args.Architecture == "" {
+	if config.From == "" && config.Os == "" && config.Architecture == "" {
 		return fmt.Errorf("missing FROM ref in config")
 	}
-	if len(args.Files) == 0 {
+	if len(config.Files) == 0 {
 		return fmt.Errorf("missing files to add in config")
 	}
-	if len(args.Dests) == 0 {
+	if len(config.Dests) == 0 {
 		return fmt.Errorf("missing dest in config")
 	}
 
@@ -96,21 +96,21 @@ func main0() error {
 		return fmt.Errorf("error setting up docker registry client policy context: %w", err)
 	}
 
-	if args.From != "" && !args.From.Exists() {
-		if args.FromPull == "" {
-			return fmt.Errorf("no FROM image exists at %s, and no pull ref configured to pull from", args.From)
+	if config.From != "" && !config.From.Exists() {
+		if config.FromPull == "" {
+			return fmt.Errorf("no FROM image exists at %s, and no pull ref configured to pull from", config.From)
 		}
 		log.Printf("Pulling from image...")
-		sourceRef, err := alltransports.ParseImageName(args.FromPull)
+		sourceRef, err := alltransports.ParseImageName(config.FromPull)
 		if err != nil {
-			return fmt.Errorf("error parsing FROM pull ref %s: %w", args.FromPull, err)
+			return fmt.Errorf("error parsing FROM pull ref %s: %w", config.FromPull, err)
 		}
-		destRef, err := archive.Transport.ParseReference(args.From.Raw())
+		destRef, err := archive.Transport.ParseReference(config.From.Raw())
 		if err != nil {
 			panic(err)
 		}
 		var noHttpVerify types.OptionalBool
-		if args.FromHttp {
+		if config.FromHttp {
 			noHttpVerify = types.OptionalBoolTrue
 		}
 		_, err = imagecopy.Image(
@@ -122,14 +122,14 @@ func main0() error {
 				SourceCtx: &types.SystemContext{
 					DockerInsecureSkipTLSVerify: noHttpVerify,
 					DockerAuthConfig: &types.DockerAuthConfig{
-						Username: args.FromUser,
-						Password: args.FromPassword,
+						Username: config.FromUser,
+						Password: config.FromPassword,
 					},
 				},
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("error pulling FROM image %s: %w", args.FromPull, err)
+			return fmt.Errorf("error pulling FROM image %s: %w", config.FromPull, err)
 		}
 		log.Printf("Pulling from image... done.")
 	}
@@ -151,14 +151,20 @@ func main0() error {
 
 	log.Printf("Building image...")
 	hash, err := dinkerlib.BuildImage(dinkerlib.BuildImageArgs{
-		FromPath:    args.From,
-		Files:       args.Files,
-		Entrypoint:  args.Entrypoint,
-		Cmd:         args.Cmd,
-		AddEnv:      args.AddEnv,
-		ClearEnv:    args.ClearEnv,
-		WorkingDir:  args.WorkingDir,
-		DestDirPath: destDirPath,
+		FromPath:     config.From,
+		Architecture: config.Architecture,
+		Os:           config.Os,
+		Files:        config.Files,
+		ClearEnv:     config.ClearEnv,
+		AddEnv:       config.AddEnv,
+		WorkingDir:   config.WorkingDir,
+		User:         config.User,
+		Entrypoint:   config.Entrypoint,
+		Cmd:          config.Cmd,
+		Ports:        config.Ports,
+		StopSignal:   config.StopSignal,
+		Labels:       config.Labels,
+		DestDirPath:  destDirPath,
 	})
 	if err != nil {
 		return fmt.Errorf("error building image: %w", err)
@@ -169,7 +175,7 @@ func main0() error {
 		panic(err)
 	}
 
-	for i, dest := range args.Dests {
+	for i, dest := range config.Dests {
 		if dest.Ref == "" {
 			log.Printf("Warning! Missing ref in dest %d, skipping", i)
 			continue
