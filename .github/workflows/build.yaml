@@ -20,13 +20,13 @@ jobs:
             "dests": [
               {
                 "ref": "docker://ghcr.io/andrewbaxter/dinker:$GITHUB_REF_NAME",
-                "dest_user": "$GITHUB_ACTOR",
-                "dest_password": "$GITHUB_TOKEN"
+                "user": "$GITHUB_ACTOR",
+                "password": "$GITHUB_TOKEN"
               },
               {
                 "ref": "docker://ghcr.io/andrewbaxter/dinker:latest",
-                "dest_user": "$GITHUB_ACTOR",
-                "dest_password": "$GITHUB_TOKEN"
+                "user": "$GITHUB_ACTOR",
+                "password": "$GITHUB_TOKEN"
               }
             ],
             "arch": "amd64",
