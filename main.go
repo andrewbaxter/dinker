@@ -157,7 +157,7 @@ func main0() error {
 		log.Printf("Pulling from image... done.")
 	}
 
-	if err := os.MkdirAll(os.TempDir(), 0o755); !os.IsNotExist(err) {
+	if err := os.MkdirAll(os.TempDir(), 0o755); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("temp dir doesn't exist and couldn't create it, unable to write generated image: %w", err)
 	}
 	t, err := os.MkdirTemp("", ".dinker-image-*")
