@@ -84,12 +84,35 @@ func main0() error {
 		return fmt.Errorf("missing files to add in config")
 	}
 	if len(config.Dests) == 0 {
-		return fmt.Errorf("missing dest in config")
+		return fmt.Errorf("missing dests in config")
 	}
 
-	policy, err := signature.DefaultPolicy(nil)
-	if err != nil {
-		return fmt.Errorf("error setting up docker registry client policy context signature: %w", err)
+	var policy *signature.Policy
+	if _, err := os.Stat("/etc/containers/policy.json"); !os.IsNotExist(err) {
+		var err error
+		policy, err = signature.DefaultPolicy(nil)
+		if err != nil {
+			return fmt.Errorf("error setting up docker registry client policy context signature: %w", err)
+		}
+	} else {
+		policyJson, _ := json.Marshal(map[string]any{
+			"default": []any{
+				map[string]any{
+					"type": "insecureAcceptAnything",
+				},
+			},
+			"transports": map[string]any{
+				"docker-daemon": map[string]any{
+					"": []any{
+						map[string]any{"type": "insecureAcceptAnything"},
+					},
+				},
+			},
+		})
+		policy, err = signature.NewPolicyFromBytes(policyJson)
+		if err != nil {
+			return fmt.Errorf("error setting up docker registry client policy context signature: %w", err)
+		}
 	}
 	policyContext, err := signature.NewPolicyContext(policy)
 	if err != nil {
