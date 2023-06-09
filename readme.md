@@ -38,7 +38,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --target x86_64-unknown-linux-musl --release
       - env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,7 +60,7 @@ jobs:
             "os": "linux",
             "files": [
               {
-                "source": "target/release/somewords",
+                "source": "target/x86_64-unknown-linux-musl/release/somewords",
                 "mode": "755"
               }
             ]
