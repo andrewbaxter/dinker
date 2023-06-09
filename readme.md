@@ -16,7 +16,9 @@ See <https://github.com/andrewbaxter/terrars/tree/master/helloworld> which has a
 
 ## Github Actions
 
-Something like this works:
+In order to push images you need to set `Settings / Code and automation / Actions / General / Workflow permissions` to `Read and write permissions`.
+
+Add this workflow (using rust, for example) in `.github/workflows/build.yaml`:
 
 ```yaml
 name: Build
