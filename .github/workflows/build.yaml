@@ -35,6 +35,11 @@ jobs:
               {
                 "source": "dinker",
                 "mode": "755"
+              },
+              {
+                "source": "/etc/ssl/certs/ca-certificates.crt",
+                "dest": "/etc/ssl/certs/ca-certificates.crt",
+                "mode": "755"
               }
             ]
           }
