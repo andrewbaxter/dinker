@@ -283,8 +283,10 @@ func BuildImage(args BuildImageArgs) (hash string, err error) {
 
 	// Write remaining meta files
 	imageConfigDigest, imageConfig := buildJson(imagespec.Image{
-		Architecture: Def(args.Architecture, fromConfig.Architecture),
-		OS:           Def(args.Os, fromConfig.OS),
+		Platform: imagespec.Platform{
+			Architecture: Def(args.Architecture, fromConfig.Architecture),
+			OS:           Def(args.Os, fromConfig.OS),
+		},
 		Config: imagespec.ImageConfig{
 			Env:          env,
 			WorkingDir:   Def(args.WorkingDir, fromConfig.Config.WorkingDir),
