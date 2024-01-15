@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -30,6 +30,7 @@ type ConfigDest struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
 	Http     bool   `json:"http"`
+	Host     string `json:"host"`
 }
 
 type Config struct {
@@ -38,6 +39,7 @@ type Config struct {
 	FromUser     string                         `json:"from_user"`
 	FromPassword string                         `json:"from_password"`
 	FromHttp     bool                           `json:"from_http"`
+	FromHost     string                         `json:"from_host"`
 	Dests        []ConfigDest                   `json:"dests"`
 	Architecture string                         `json:"arch"`
 	Os           string                         `json:"os"`
@@ -60,13 +62,13 @@ func main0() error {
 	var args0 []byte
 	if os.Args[1] == "-" {
 		var err error
-		args0, err = ioutil.ReadAll(os.Stdin)
+		args0, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("error reading config from stdin: %w", err)
 		}
 	} else {
 		var err error
-		args0, err = ioutil.ReadFile(os.Args[1])
+		args0, err = os.ReadFile(os.Args[1])
 		if err != nil {
 			return fmt.Errorf("error reading config at %s: %w", os.Args[1], err)
 		}
@@ -143,7 +145,10 @@ func main0() error {
 			sourceRef,
 			&imagecopy.Options{
 				SourceCtx: &types.SystemContext{
-					DockerInsecureSkipTLSVerify: noHttpVerify,
+					DockerInsecureSkipTLSVerify:       noHttpVerify,
+					DockerDaemonHost:                  config.FromHost,
+					DockerDaemonInsecureSkipTLSVerify: config.FromHttp,
+					OCIInsecureSkipTLSVerify:          config.FromHttp,
 					DockerAuthConfig: &types.DockerAuthConfig{
 						Username: config.FromUser,
 						Password: config.FromPassword,
@@ -202,11 +207,10 @@ func main0() error {
 	}
 
 	for i, dest := range config.Dests {
-		if dest.Ref == "" {
-			log.Printf("Warning! Missing ref in dest %d, skipping", i)
-			continue
-		}
 		destString := dest.Ref
+		if destString == "" {
+			panic(fmt.Sprintf("Missing ref in dest %d", i))
+		}
 		for k, v := range map[string]string{
 			"hash":       hash,
 			"short_hash": hash[:8],
@@ -215,7 +219,7 @@ func main0() error {
 		}
 		destRef, err := alltransports.ParseImageName(destString)
 		if err != nil {
-			return fmt.Errorf("invalid dest image ref %s: %w", dest.Ref, err)
+			return fmt.Errorf("invalid dest image ref %s: %w", destString, err)
 		}
 
 		log.Printf("Pushing to %s...", destString)
@@ -224,7 +228,10 @@ func main0() error {
 			noHttpVerify = types.OptionalBoolTrue
 		}
 		destSysCtx := types.SystemContext{
-			DockerInsecureSkipTLSVerify: noHttpVerify,
+			DockerInsecureSkipTLSVerify:       noHttpVerify,
+			DockerDaemonHost:                  dest.Host,
+			DockerDaemonInsecureSkipTLSVerify: dest.Http,
+			OCIInsecureSkipTLSVerify:          dest.Http,
 			DockerAuthConfig: &types.DockerAuthConfig{
 				Username: dest.User,
 				Password: dest.Password,

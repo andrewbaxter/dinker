@@ -81,7 +81,12 @@ This is an example, where I have a Go binary `hello` in my current directory.
    {
      "from": "alpine.tar",
      "from_pull": "docker://alpine:3.17.0",
-     "dest": "docker://localhost:5000/hello:latest",
+     "dests": [
+       {
+         "ref": "docker-daemon:hello:latest",
+         "host": "unix:///var/run/docker2.sock"
+       }
+     ],
      "files": [
        {
          "source": "hello",
@@ -148,6 +153,10 @@ The json file has these options:
 
     True if this dest is over http (disable tls validation)
 
+  - `host`
+
+    If using the `docker-daemon` transport which doesn't support host specification, override the default docker daemon.
+
 - `files`
 
   Files to add to the image. This is an array of objects with these fields:
@@ -189,6 +198,10 @@ The json file has these options:
 - `from_http`
 
   True if `from_pull` source is over http (disable tls validation)
+
+- `from_host`
+
+  If using the `docker-daemon` transport which doesn't support host specification, override the default docker daemon.
 
 - `add_env`
 
