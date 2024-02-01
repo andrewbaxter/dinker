@@ -57,7 +57,7 @@ func canonicalJsonMarshal(sym any) []byte {
 	return ser
 }
 
-func writeDestFile(destTar *tar.Writer, parentPath string, f BuildImageArgsFile) error {
+func writeDestFile(destFilesSeen map[string]bool, destTar *tar.Writer, parentPath string, f BuildImageArgsFile) error {
 	if strings.Contains(f.Name, "/") {
 		return fmt.Errorf("Dir %s name contains slashes; subdirs must be nested as objects", f.Name)
 	}
@@ -68,6 +68,10 @@ func writeDestFile(destTar *tar.Writer, parentPath string, f BuildImageArgsFile)
 	} else {
 		destPath = fmt.Sprintf("%s/%s", parentPath, destName)
 	}
+	if destFilesSeen[destPath] {
+		return fmt.Errorf("the layer tar file has destination file or dir %s multiple times", destPath)
+	}
+	destFilesSeen[destPath] = true
 	mode, err := strconv.ParseInt(Def(f.Mode, "644"), 8, 32)
 	if err != nil {
 		return fmt.Errorf("file %s mode %s is not valid octal: %w", destPath, f.Mode, err)
@@ -99,7 +103,7 @@ func writeDestFile(destTar *tar.Writer, parentPath string, f BuildImageArgsFile)
 	return nil
 }
 
-func buildDestDir(destTar *tar.Writer, parentPath string, d BuildImageArgsDir) error {
+func buildDestDir(destFilesSeen map[string]bool, destTar *tar.Writer, parentPath string, d BuildImageArgsDir) error {
 	if strings.Contains(d.Name, "/") {
 		return fmt.Errorf("Dir %s name contains slashes; subdirs must be nested as objects", d.Name)
 	}
@@ -109,6 +113,10 @@ func buildDestDir(destTar *tar.Writer, parentPath string, d BuildImageArgsDir) e
 	} else {
 		destPath = fmt.Sprintf("%s/%s", parentPath, d.Name)
 	}
+	if destFilesSeen[destPath] {
+		return fmt.Errorf("the layer tar file has destination file or dir %s multiple times", destPath)
+	}
+	destFilesSeen[destPath] = true
 	mode, err := strconv.ParseInt(Def(d.Mode, "644"), 8, 32)
 	if err != nil {
 		return fmt.Errorf("file %s mode %s is not valid octal: %w", destPath, d.Mode, err)
@@ -121,13 +129,13 @@ func buildDestDir(destTar *tar.Writer, parentPath string, d BuildImageArgsDir) e
 		return fmt.Errorf("error writing tar header for %s: %w", destPath, err)
 	}
 	for _, f := range d.Dirs {
-		err := buildDestDir(destTar, destPath, f)
+		err := buildDestDir(destFilesSeen, destTar, destPath, f)
 		if err != nil {
 			return err
 		}
 	}
 	for _, f := range d.Files {
-		err := writeDestFile(destTar, destPath, f)
+		err := writeDestFile(destFilesSeen, destTar, destPath, f)
 		if err != nil {
 			return err
 		}
@@ -233,14 +241,15 @@ func BuildImage(args BuildImageArgs) (hash string, err error) {
 			uncompressedDigester,
 			gzWriter,
 		))
+		destFilesSeen := map[string]bool{}
 		for _, f := range args.Files {
-			err := writeDestFile(destTar, "", f)
+			err := writeDestFile(destFilesSeen, destTar, "", f)
 			if err != nil {
 				return "", err
 			}
 		}
 		for _, d := range args.Dirs {
-			err := buildDestDir(destTar, "", d)
+			err := buildDestDir(destFilesSeen, destTar, "", d)
 			if err != nil {
 				return "", err
 			}
