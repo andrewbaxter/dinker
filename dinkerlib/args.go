@@ -1,9 +1,21 @@
 package dinkerlib
 
+type BuildImageArgsDir struct {
+	// Name in parent in destination tree
+	Name string `json:"name"`
+	// Parsed as octal, defaults to 0755
+	Mode string `json:"mode"`
+	// Child dirs
+	Dirs []BuildImageArgsDir
+	// Child files
+	Files []BuildImageArgsFile
+}
+
 type BuildImageArgsFile struct {
+	// Name in parent in destination tree. Defaults to filename of source if empty.
+	Name string `json:"name"`
+	// Path of file to copy from
 	Source AbsPath `json:"source"`
-	// Defaults to the filename of Source in /. Ex: if source is `a/b/c` the resulting image will have the file at `/c`
-	Dest string `json:"dest"`
 	// Parsed as octal, defaults to 0644
 	Mode string `json:"mode"`
 }
@@ -21,7 +33,9 @@ type BuildImageArgs struct {
 	Architecture string
 	// Defaults to FROM image os
 	Os string
-	// Files to add to the image
+	// Directories to build in the image root
+	Dirs []BuildImageArgsDir
+	// Files to add to the image root
 	Files []BuildImageArgsFile
 	// Don't inherit env from FROM image
 	ClearEnv bool

@@ -57,6 +57,84 @@ func canonicalJsonMarshal(sym any) []byte {
 	return ser
 }
 
+func writeDestFile(destTar *tar.Writer, parentPath string, f BuildImageArgsFile) error {
+	if strings.Contains(f.Name, "/") {
+		return fmt.Errorf("Dir %s name contains slashes; subdirs must be nested as objects", f.Name)
+	}
+	destName := Def(f.Name, f.Source.Filename())
+	var destPath string
+	if parentPath == "" {
+		destPath = destName
+	} else {
+		destPath = fmt.Sprintf("%s/%s", parentPath, destName)
+	}
+	mode, err := strconv.ParseInt(Def(f.Mode, "644"), 8, 32)
+	if err != nil {
+		return fmt.Errorf("file %s mode %s is not valid octal: %w", destPath, f.Mode, err)
+	}
+	stat, err := os.Stat(f.Source.Raw())
+	if err != nil {
+		return fmt.Errorf("error looking up metadata for layer file %s: %w", f.Source, err)
+	}
+	if err := destTar.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeReg,
+		Name:     destPath,
+		Mode:     mode,
+		Size:     stat.Size(),
+	}); err != nil {
+		return fmt.Errorf("error writing tar header for %s: %w", f.Source, err)
+	}
+	fSource, err := os.Open(f.Source.Raw())
+	if err != nil {
+		return fmt.Errorf("error opening source file %s for adding to layer: %w", f.Source, err)
+	}
+	_, err = io.Copy(destTar, fSource)
+	if err != nil {
+		return fmt.Errorf("error copying data from %s: %w", f.Source, err)
+	}
+	err = fSource.Close()
+	if err != nil {
+		return fmt.Errorf("error closing %s after reading: %w", f.Source, err)
+	}
+	return nil
+}
+
+func buildDestDir(destTar *tar.Writer, parentPath string, d BuildImageArgsDir) error {
+	if strings.Contains(d.Name, "/") {
+		return fmt.Errorf("Dir %s name contains slashes; subdirs must be nested as objects", d.Name)
+	}
+	var destPath string
+	if parentPath == "" {
+		destPath = d.Name
+	} else {
+		destPath = fmt.Sprintf("%s/%s", parentPath, d.Name)
+	}
+	mode, err := strconv.ParseInt(Def(d.Mode, "644"), 8, 32)
+	if err != nil {
+		return fmt.Errorf("file %s mode %s is not valid octal: %w", destPath, d.Mode, err)
+	}
+	if err := destTar.WriteHeader(&tar.Header{
+		Typeflag: tar.TypeDir,
+		Name:     destPath,
+		Mode:     mode,
+	}); err != nil {
+		return fmt.Errorf("error writing tar header for %s: %w", destPath, err)
+	}
+	for _, f := range d.Dirs {
+		err := buildDestDir(destTar, destPath, f)
+		if err != nil {
+			return err
+		}
+	}
+	for _, f := range d.Files {
+		err := writeDestFile(destTar, destPath, f)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func BuildImage(args BuildImageArgs) (hash string, err error) {
 	hashData := map[string]any{}
 
@@ -156,32 +234,15 @@ func BuildImage(args BuildImageArgs) (hash string, err error) {
 			gzWriter,
 		))
 		for _, f := range args.Files {
-			stat, err := os.Stat(f.Source.Raw())
+			err := writeDestFile(destTar, "", f)
 			if err != nil {
-				return "", fmt.Errorf("error looking up metadata for layer file %s: %w", f.Source, err)
+				return "", err
 			}
-			mode, err := strconv.ParseInt(Def(f.Mode, "644"), 8, 32)
+		}
+		for _, d := range args.Dirs {
+			err := buildDestDir(destTar, "", d)
 			if err != nil {
-				return "", fmt.Errorf("file %s mode %s is not valid octal: %w", f.Source, f.Mode, err)
-			}
-			if err := destTar.WriteHeader(&tar.Header{
-				Name: strings.TrimPrefix(Def(f.Dest, f.Source.Filename()), "/"),
-				Mode: mode,
-				Size: stat.Size(),
-			}); err != nil {
-				return "", fmt.Errorf("error writing tar header for %s: %w", f.Source, err)
-			}
-			fSource, err := os.Open(f.Source.Raw())
-			if err != nil {
-				return "", fmt.Errorf("error opening source file %s for adding to layer: %w", f.Source, err)
-			}
-			_, err = io.Copy(destTar, fSource)
-			if err != nil {
-				return "", fmt.Errorf("error copying data from %s: %w", f.Source, err)
-			}
-			err = fSource.Close()
-			if err != nil {
-				return "", fmt.Errorf("error closing %s after reading: %w", f.Source, err)
+				return "", err
 			}
 		}
 		if err := destTar.Close(); err != nil {
